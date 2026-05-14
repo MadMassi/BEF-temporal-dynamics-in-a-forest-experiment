@@ -1,9 +1,9 @@
 ###-------------------------------------------------------------------------------------
-# Helper functions for data analysis of manuscript "Time amplifies multitrophic diversity-functioning relationships in forests"
+# Helper functions for data analysis of manuscript "Forest growth strengthens diversity effects on multitrophic interactions"
 # Author: Massimo Martini
-# Date: 20th November 2025
 
 ###-------------------------------------------------------------------------------------
+
 #calculating forest age effect from different models
 calculate_forest_age_effect <- function(model, variable, forest_age_var = "sc_fa") {
   
@@ -57,8 +57,6 @@ calculate_forest_age_effect <- function(model, variable, forest_age_var = "sc_fa
 }
 
 
-
-
 ###-------------------------------------------------------------------------------------
 #Sensitivity analysis
 compare_models <- function(model1, model2) {
@@ -92,555 +90,6 @@ compare_models <- function(model1, model2) {
 }
 
 
-
-
-
-
-#----------------------------------------------------------------------------------------------------------
-# Pretty-print and export summaries for a list of glmmTMB models (v4: pseudo-R2 + fixed-width tables)
-# - Likelihood-based pseudo-R2 (McFadden, Cox–Snell, Nagelkerke)
-# - Fixed-width ASCII tables inside code fences for perfect column alignment
-# - Robust random-effects extraction (broom.mixed preferred)
-# - Pretty variable names incl. interactions with " X "
-# - Prints family/link, n, logLik, AIC, pseudo-R2s, fixed effects, random effects
-#
-# Usage:
-#   res <- pretty_glmmTMB_summaries(
-#     models = mods,
-#     file   = "model_summaries.md",
-#     digits = 3
-#   )
-
-
-### Helpers for pretty_glmmTMB_summaries #######################################
-
-add_sig_stars <- function(df) {
-  pcols <- c("Pr(>|z|)", "Pr(>|t|)")
-  pcol  <- intersect(pcols, names(df))
-  if (length(pcol) == 0) return(df)
-  p <- df[[pcol[1]]]
-  df$Sig. <- ifelse(is.na(p), "",
-                    ifelse(p < 0.001, "***",
-                           ifelse(p < 0.01, "**",
-                                  ifelse(p < 0.05, "*",
-                                         ifelse(p < 0.1, ".", "")))))
-  df
-}
-
-# digits-aware formatter using an option the main function will set
-fmt_num <- function(x, digits = getOption("pretty_glmmTMB_digits", 3)) {
-  formatC(x, format = "f", digits = digits)
-}
-
-
-# Fixed-width table formatters (monospaced, code fences)
-
-format_coef_block_fixed <- function(tab, header, prettify_fun = identity) {
-  if (is.null(tab) || nrow(tab) == 0) return(character(0))
-  df <- as.data.frame(tab)
-  
-  # Stars + human-readable term names
-  df$Term <- rownames(df)
-  df <- add_sig_stars(df)
-  df$Term <- vapply(df$Term, prettify_fun, character(1))
-  
-  # Which stat columns exist?
-  pcol    <- intersect(c("Pr(>|z|)", "Pr(>|t|)"), names(df))
-  if (length(pcol) > 1) pcol <- pcol[1]
-  statcol <- intersect(c("z value", "t value"), names(df))
-  
-  # Final column order
-  cols <- c("Term", "Estimate", "Std. Error", statcol, pcol, "Sig.")
-  cols <- cols[cols %in% names(df)]
-  df <- df[, cols, drop = FALSE]
-  
-  # Numeric formatting (p-values handled separately)
-  for (nm in setdiff(names(df), pcol)) if (is.numeric(df[[nm]])) df[[nm]] <- fmt_num(df[[nm]])
-  if (length(pcol) == 1 && is.numeric(df[[pcol]])) {
-    df[[pcol]] <- ifelse(df[[pcol]] < 0.001, "<0.001", fmt_num(df[[pcol]]))
-  }
-  
-  # Compute widths (min width is header width)
-  widths <- vapply(names(df), function(nm) max(nchar(nm, type = "width"),
-                                               nchar(df[[nm]], type = "width")), numeric(1))
-  
-  # Row printer with padding
-  pad_row <- function(vals) paste(mapply(function(val, w) sprintf(paste0("%-", w, "s"), val), vals, widths), collapse = " | ")
-  
-  header_line <- pad_row(names(df))
-  sep_line    <- paste(mapply(function(w) paste(rep("-", w), collapse = ""), widths), collapse = "-|-")
-  rows        <- apply(df, 1, pad_row)
-  
-  c(paste0("### ", header),
-    "",
-    "```",
-    header_line,
-    sep_line,
-    rows,
-    "```",
-    "",
-    "Significance codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1",
-    "")
-}
-
-format_ranef_fixed <- function(mod) {
-  ran_df <- try({
-    if (requireNamespace("broom.mixed", quietly = TRUE))
-      broom.mixed::tidy(mod, effects = "ran_pars")
-    else stop("no broom.mixed")
-  }, silent = TRUE)
-  
-  if (!inherits(ran_df, "try-error") && !is.null(ran_df) && nrow(ran_df)) {
-    ran_df <- subset(ran_df, effect == "ran_pars")
-    ran_cond <- subset(ran_df, component %in% c("cond", NA))
-    is_sd <- grepl("^sd__", ran_cond$term)
-    ran_sd <- ran_cond[is_sd, , drop = FALSE]
-    if (!nrow(ran_sd)) return(c("### Random effects", "", "(No random effects)", ""))
-    
-    clean_term <- function(x) { x <- sub("^sd__", "", x); ifelse(x == "Intercept", "(Intercept)", x) }
-    out <- data.frame(
-      Group    = ran_sd$group,
-      Term     = vapply(ran_sd$term, clean_term, character(1)),
-      `Std.Dev.` = ran_sd$estimate,
-      Variance = ran_sd$estimate^2,
-      check.names = FALSE
-    )
-    
-    out$`Std.Dev.` <- fmt_num(out$`Std.Dev.`)
-    out$Variance   <- fmt_num(out$Variance)
-    
-    widths <- vapply(names(out), function(nm) max(nchar(nm, type = "width"),
-                                                  nchar(out[[nm]], type = "width")), numeric(1))
-    
-    pad_row <- function(vals) paste(mapply(function(val, w) sprintf(paste0("%-", w, "s"), val), vals, widths), collapse = " | ")
-    
-    header_line <- pad_row(names(out))
-    sep_line    <- paste(mapply(function(w) paste(rep("-", w), collapse = ""), widths), collapse = "-|-")
-    rows        <- apply(out, 1, pad_row)
-    
-    return(c("### Random effects", "", "```", header_line, sep_line, rows, "```", ""))
-  }
-  c("### Random effects", "", "(Random-effect details unavailable)", "")
-}
-
-# Nakagawa R2 helper (marginal / conditional)
-.nakagawa_r2 <- function(model) {
-  # --- 1) performance::r2_nakagawa() (most explicit + stable) ---
-  if (requireNamespace("performance", quietly = TRUE)) {
-    r2nk <- try(performance::r2_nakagawa(model), silent = TRUE)
-    if (!inherits(r2nk, "try-error") && !is.null(r2nk)) {
-      vals <- try(unlist(r2nk), silent = TRUE)
-      if (!inherits(vals, "try-error")) {
-        m_idx <- grep("marginal",    names(vals), ignore.case = TRUE)[1]
-        c_idx <- grep("conditional", names(vals), ignore.case = TRUE)[1]
-        if (!is.na(m_idx) && !is.na(c_idx)) {
-          m <- suppressWarnings(as.numeric(vals[m_idx]))
-          c <- suppressWarnings(as.numeric(vals[c_idx]))
-          if (is.finite(m) && is.finite(c)) {
-            return(c(marginal = m, conditional = c))
-          }
-        }
-      }
-    }
-    
-    # --- 2) fallback: performance::r2() (what you call manually) ---
-    r2_any <- try(performance::r2(model), silent = TRUE)
-    if (!inherits(r2_any, "try-error") && !is.null(r2_any)) {
-      vals <- try(unlist(r2_any), silent = TRUE)
-      if (!inherits(vals, "try-error")) {
-        m_idx <- grep("marginal",    names(vals), ignore.case = TRUE)[1]
-        c_idx <- grep("conditional", names(vals), ignore.case = TRUE)[1]
-        if (!is.na(m_idx) && !is.na(c_idx)) {
-          m <- suppressWarnings(as.numeric(vals[m_idx]))
-          c <- suppressWarnings(as.numeric(vals[c_idx]))
-          if (is.finite(m) && is.finite(c)) {
-            return(c(marginal = m, conditional = c))
-          }
-        }
-      }
-    }
-  }
-  
-  # --- 3) MuMIn::r.squaredGLMM() as last resort ---
-  if (requireNamespace("MuMIn", quietly = TRUE)) {
-    r2m <- try(MuMIn::r.squaredGLMM(model), silent = TRUE)
-    if (!inherits(r2m, "try-error") && !is.null(r2m) &&
-        (is.matrix(r2m) || is.data.frame(r2m)) &&
-        all(c("R2m", "R2c") %in% colnames(r2m))) {
-      m <- suppressWarnings(as.numeric(r2m[1, "R2m"]))
-      c <- suppressWarnings(as.numeric(r2m[1, "R2c"]))
-      if (is.finite(m) && is.finite(c)) {
-        return(c(marginal = m, conditional = c))
-      }
-    }
-  }
-  
-  # If everything fails or only non-finite values are found, return NULL
-  NULL
-}
-
-
-
-# Pseudo-R2 calculator (auto-builds null unless provided)
-
-.pseudo_r2 <- function(model, null_model = NULL) {
-  if (is.null(null_model)) {
-    null_try <- try(suppressWarnings(update(model, . ~ 1)), silent = TRUE)
-    if (inherits(null_try, "try-error")) {
-      stop("Could not auto-build a null model with update(. ~ 1). Provide null_model explicitly.")
-    }
-    null_model <- null_try
-  }
-  ll_full <- as.numeric(logLik(model))
-  ll_null <- as.numeric(logLik(null_model))
-  n <- tryCatch(nobs(model), error = function(e) NA_integer_)
-  if (!is.finite(ll_full) || !is.finite(ll_null)) stop("Non-finite log-likelihood(s): check model convergence.")
-  if (!is.finite(n) || n <= 0) stop("Could not determine sample size via nobs().")
-  
-  R2_McF <- 1 - (ll_full / ll_null)
-  R2_CS  <- 1 - exp((2 / n) * (ll_null - ll_full))
-  denom  <- 1 - exp((2 / n) * ll_null)
-  R2_Nag <- if (abs(denom) < .Machine$double.eps) NA_real_ else (R2_CS / denom)
-  
-  list(McFadden = R2_McF, Nagelkerke = R2_Nag,
-       logLik_full = ll_full, logLik_null = ll_null, n = n,
-       AIC_full = tryCatch(AIC(model), error = function(e) NA_real_),
-       AIC_null = tryCatch(AIC(null_model), error = function(e) NA_real_))
-}
-
-
-# Robustly get genpois dispersion; returns a single numeric or NA
-get_genpois_dispersion <- function(mod, fam_name = NULL) {
-  if (is.null(fam_name)) {
-    fam_name <- tryCatch(family(mod)$family, error = function(e) "")
-  }
-  if (!grepl("^genpois", fam_name, ignore.case = TRUE)) return(NA_real_)
-  
-  # --- 1) Structured attempt from coef(summary(mod))$disp ---
-  cs_try <- try(coef(summary(mod)), silent = TRUE)
-  if (!inherits(cs_try, "try-error") && !is.null(cs_try$disp)) {
-    disp_obj <- cs_try$disp
-    # Matrix/data.frame with an "(Intercept)" row
-    if (is.matrix(disp_obj) || is.data.frame(disp_obj)) {
-      rn <- rownames(disp_obj)
-      pick <- if (!is.null(rn) && any(rn %in% c("(Intercept)", "(Intercept).1"))) {
-        which(rn %in% c("(Intercept)", "(Intercept).1"))[1]
-      } else 1
-      est_col <- intersect(c("Estimate", "estimate", "(Intercept)"), colnames(disp_obj))
-      if (length(est_col) == 0) {
-        num_cols <- colnames(disp_obj)[vapply(as.data.frame(disp_obj), is.numeric, logical(1))]
-        if (length(num_cols) > 0) est_col <- num_cols[1]
-      }
-      if (length(est_col) == 1) {
-        est <- suppressWarnings(as.numeric(disp_obj[pick, est_col]))
-        if (is.finite(est)) return(exp(est))
-      }
-    } else if (is.numeric(disp_obj) && length(disp_obj) >= 1) {
-      # Named numeric vector case
-      est <- suppressWarnings(as.numeric(disp_obj[[1]]))
-      if (is.finite(est)) return(exp(est))
-    }
-  }
-  
-  # --- 2) Fallback: parse printed summary line ---
-  txt  <- capture.output(suppressWarnings(summary(mod)))
-  line <- grep("^\\s*Dispersion parameter for genpois", txt, value = TRUE)
-  if (length(line)) {
-    num <- sub(".*:\\s*", "", line[1])
-    val <- suppressWarnings(as.numeric(num))
-    if (is.finite(val)) return(val)
-  }
-  
-  NA_real_
-}
-
-
-
-#get autocorrelation dispersion parameters
-format_ar1_disp_fixed <- function(mod) {
-  # Parse the 'Dispersion model:' block from summary(glmmTMB)
-  txt <- capture.output(suppressWarnings(summary(mod)))
-  
-  # Locate the 'Dispersion model:' section
-  start <- grep("^Dispersion model:", txt)
-  if (length(start) == 0) return(character(0))
-  start <- start[1] + 1L  # first line after the heading
-  
-  # Collect lines until a stopper (Number of obs, Conditional model, Zero-inflation, blank)
-  stop_idx <- length(txt)
-  for (i in start:length(txt)) {
-    if (grepl("^Number of obs:", txt[i]) ||
-        grepl("^Conditional model:", txt[i]) ||
-        grepl("^Zero-inflation model:", txt[i]) ||
-        trimws(txt[i]) == "") {
-      stop_idx <- i - 1L
-      break
-    }
-  }
-  
-  block <- txt[start:stop_idx]
-  block <- block[nzchar(trimws(block))]  # drop empty lines
-  
-  if (!length(block)) return(character(0))
-  
-  # First line is the header ("Groups Name Variance Std.Dev. Corr")
-  header_line <- block[1]
-  data_lines  <- block[-1]
-  if (!length(data_lines)) return(character(0))
-  
-  # Keep only rows that clearly contain AR(1) info
-  data_lines <- data_lines[grepl("\\(ar1\\)", data_lines, ignore.case = TRUE)]
-  if (!length(data_lines)) return(character(0))
-  
-  # Parse each line by whitespace
-  parsed <- strsplit(trimws(data_lines), "\\s+")
-  
-  tab <- do.call(rbind, lapply(parsed, function(v) {
-    # Expect at least: Group, Name, Variance, Std.Dev., Corr, "(ar1)"
-    # If more columns, Corr part is all remaining after the 4th numeric columns
-    if (length(v) < 6) return(NULL)
-    grp  <- v[1]
-    nm   <- v[2]
-    var  <- v[3]
-    sd   <- v[4]
-    corr <- paste(v[5:length(v)], collapse = " ")
-    c(Group = grp, Name = nm, Variance = var, Std.Dev. = sd, Corr = corr)
-  }))
-  
-  if (is.null(tab) || nrow(tab) == 0) return(character(0))
-  
-  tab <- as.data.frame(tab, stringsAsFactors = FALSE)
-  
-  # Numeric formatting for Variance / Std.Dev.
-  tab$Variance <- fmt_num(as.numeric(tab$Variance))
-  tab$Std.Dev. <- fmt_num(as.numeric(tab$Std.Dev.))
-  
-  # Fixed-width formatting
-  widths <- vapply(names(tab), function(nm)
-    max(nchar(nm, type = "width"), nchar(tab[[nm]], type = "width")),
-    numeric(1)
-  )
-  
-  pad_row <- function(vals) {
-    paste(mapply(function(val, w) sprintf(paste0("%-", w, "s"), val),
-                 vals, widths),
-          collapse = " | ")
-  }
-  
-  header_line <- pad_row(names(tab))
-  sep_line    <- paste(mapply(function(w) paste(rep("-", w), collapse = ""),
-                              widths),
-                       collapse = "-|-")
-  rows        <- apply(tab, 1, pad_row)
-  
-  c("### Dispersion / autocorrelation parameters",
-    "",
-    "```",
-    header_line,
-    sep_line,
-    rows,
-    "```",
-    "")
-}
-
-
-
-### Pretty model printing #########################################################
-# Main pretty printer
-
-pretty_glmmTMB_summaries <- function(models,
-                                     file   = "model_summaries.md",
-                                     digits = 3) {
-  stopifnot(is.list(models))
-  if (length(models) == 0) stop("`models` is empty.")
-  
-  # ensure global fmt_num() uses this run's digits
-  old_opts <- options(pretty_glmmTMB_digits = digits)
-  on.exit(options(old_opts), add = TRUE)
-  
-  # mapping: original -> abbreviated (we'll reverse it below)
-  pretty_map <- c(
-    "LogTR"         = "sc_sr",
-    "Forest biom."  = "sc_sv",
-    "Tree FD"       = "sc_fd",
-    "Forest age"    = "sc_fa",
-    "Host abund"    = "sc_ha",
-    "Host rich"     = "sc_hr",
-    "Enemy abund"   = "sc_pa",
-    "Enemy rich"    = "sc_pr",
-    "Slope"         = "sc_slope",
-    "Elevation"     = "sc_alt",
-    "Eastness"      = "sc_east",
-    "Northness"     = "sc_north"
-  )
-  # reverse lookup (abbr -> pretty)
-  abbr_to_pretty <- stats::setNames(names(pretty_map), unname(pretty_map))
-  
-  # term prettifier (inside so it sees abbr_to_pretty)
-  prettify_term <- function(term) {
-    if (term %in% c("(Intercept)", "(Intercept).1")) return(term)
-    parts <- strsplit(term, ":")[[1]]
-    parts <- vapply(parts, function(p) {
-      if (!is.na(abbr_to_pretty[p])) return(abbr_to_pretty[p])
-      pp <- p
-      for (abbr in names(abbr_to_pretty)) pp <- gsub(paste0("\\b", abbr, "\\b"), abbr_to_pretty[abbr], pp)
-      pp
-    }, character(1))
-    if (length(parts) > 1) paste(parts, collapse = " X ") else parts
-  }
-  
-  con <- file(file, open = "wt", encoding = "UTF-8")
-  on.exit(close(con), add = TRUE)
-
-  # --- Header note -----------------------------------------------------------
-header_note <- c(
-  "# Model results for the manuscript \"Time amplifies multitrophic diversity-functioning relationships in forests\"",
-  "",
-  "Author: Massimo Martini",
-  "Date: 20th November 2025",
-  "",
-  "---",
-  ""
-)
-writeLines(header_note, con)
-
-# --- R2 caution note --------------------------------------------------------  
-  r2_note <- c(
-    "## Note on R² metrics",
-    "",
-    "All R² and pseudo-R² values (McFadden, Nagelkerke, Nakagawa) are reported ",
-    "for transparency, but should be interpreted with caution.",
-    "",
-    "Models fitted with generalized Poisson families and/or ",
-    "include additional dispersion structures (e.g. temporal autocorrelation).",
-    "Under such settings, likelihood-based and variance-partitioning ",
-    "R² measures can appear numerically smaller and are not directly comparable to R² ",
-    "values from Gaussian or standard Poisson models.",
-    "",
-    "We recommend using these metrics for relative comparisons among ",
-    "models with similar families and structures, rather than as absolute measures of ",
-    "explained variance.",
-    "",
-    "---",
-    ""
-  )
-  
-  writeLines(r2_note, con)
-  
-  results <- vector("list", length(models))
-  names(results) <- if (is.null(names(models))) paste0("Model_", seq_along(models)) else names(models)
-  
-  for (i in seq_along(models)) {
-    mod <- models[[i]]
-    if (is.null(mod)) next
-    s <- summary(mod)
-    
-    mdl_name <- if (!is.null(names(models)) && nzchar(names(models)[i])) names(models)[i] else paste0("Model_", i)
-    
-    fam <- try(family(mod), silent = TRUE)
-    fam_name  <- if (!inherits(fam, "try-error") && !is.null(fam$family)) fam$family else "unknown"
-    link_name <- if (!inherits(fam, "try-error") && !is.null(fam$link))   fam$link   else "unknown"
-    
-    n   <- try(stats::nobs(mod), silent = TRUE); if (inherits(n,   "try-error")) n   <- NA
-    ll  <- try(as.numeric(stats::logLik(mod)), silent = TRUE); if (inherits(ll,  "try-error")) ll  <- NA
-    aic <- try(stats::AIC(mod), silent = TRUE); if (inherits(aic, "try-error")) aic <- NA
-    
-    # Pseudo-R2s (build matching null automatically)
-    pR2 <- .pseudo_r2(mod)
-    
-    # --- Genpois dispersion parameter (simple, always printed when available) ---
-    extra_info <- NULL
-    gp <- get_genpois_dispersion(mod, fam_name)
-    if (is.finite(gp)) {
-      extra_info <- paste0("**Dispersion (genpois)**: ", fmt_num(gp))
-    }
-    
-    # Nakagawa R2 (marginal / conditional); may be NULL if not computable
-    nkR2 <- .nakagawa_r2(mod)
-    
-    header_lines <- c(
-      paste0("# ", mdl_name),
-      paste0("**Family**: ", fam_name, " (link = ", link_name, ")"),
-      paste0("**Observations**: ", n,
-             "   |   **logLik**: ", fmt_num(ll),
-             "   |   **AIC**: ", fmt_num(aic))
-    )
-    
-    if (!is.null(extra_info)) {
-      header_lines <- c(header_lines, extra_info)
-    }
-    
-    if (!is.null(nkR2)) {
-      header_lines <- c(
-        header_lines,
-        paste0("**Nakagawa R2 (marginal / conditional)**: ",
-               fmt_num(nkR2["marginal"]), " / ", fmt_num(nkR2["conditional"]))
-      )
-    }
-    
-    header_lines <- c(
-      header_lines,
-      paste0("**Pseudo R2 (McFadden / Nagelkerke)**: ",
-             fmt_num(pR2$McFadden), " / ", fmt_num(pR2$Nagelkerke)),
-      ""
-    )
-    
-    writeLines(header_lines, con)
-    
-    coef_list <- try(coef(summary(mod)), silent = TRUE)
-    if (!inherits(coef_list, "try-error")) {
-      if (!is.null(coef_list$cond) && nrow(coef_list$cond) > 0)
-        writeLines(format_coef_block_fixed(coef_list$cond, "Fixed effects (conditional)", prettify_term), con)
-      if (!is.null(coef_list$zi) && nrow(coef_list$zi) > 0)
-        writeLines(format_coef_block_fixed(coef_list$zi, "Fixed effects (zero-inflation)", prettify_term), con)
-      if (!is.null(coef_list$disp) && nrow(coef_list$disp) > 0)
-        writeLines(format_coef_block_fixed(coef_list$disp, "Dispersion model", prettify_term), con)
-    } else if (!is.null(s$coefficients)) {
-      if (!is.null(s$coefficients$cond)) writeLines(format_coef_block_fixed(s$coefficients$cond, "Fixed effects (conditional)", prettify_term), con)
-      if (!is.null(s$coefficients$zi))   writeLines(format_coef_block_fixed(s$coefficients$zi,   "Fixed effects (zero-inflation)", prettify_term), con)
-      if (!is.null(s$coefficients$disp)) writeLines(format_coef_block_fixed(s$coefficients$disp, "Dispersion model", prettify_term), con)
-    }
-    
-    # Random effects (conditional)
-    writeLines(format_ranef_fixed(mod), con)
-    
-    # Dispersion / autocorrelation parameters (if present)
-    ar1_block <- format_ar1_disp_fixed(mod)
-    if (length(ar1_block)) writeLines(ar1_block, con)
-    
-    # Separator
-    writeLines(c(paste(rep("=", 80), collapse = ""), ""), con)
-    
-    results[[i]] <- list(
-      name   = mdl_name,
-      family = fam_name,
-      link   = link_name,
-      nobs   = n,
-      logLik = ll,
-      AIC    = aic,
-      pseudoR2   = c(
-        McFadden   = pR2$McFadden,
-        Nagelkerke = pR2$Nagelkerke,
-        DevExplained = pR2$DevExplained  # keep this if your real .pseudo_r2 defines it
-      ),
-      nakagawaR2 = nkR2,
-      coefs  = if (!inherits(coef_list, "try-error")) coef_list else s$coefficients,
-      ranef  = try(
-        if (requireNamespace("broom.mixed", quietly = TRUE))
-          broom.mixed::tidy(mod, effects = "ran_pars")
-        else NULL,
-        silent = TRUE
-      )
-    )
-    
-  }
-  
-  message("Wrote summaries to: ", normalizePath(file, winslash = "/"))
-  invisible(results)
-}
-
-
-
 #---------------------------------------------------------------------------------------------
 #Remove path analysis sub-models from the global environment once they are already safely inside the various lists 
 rm_path_objects <- function(...) {
@@ -654,8 +103,6 @@ rm_path_objects <- function(...) {
   valid_names <- all_names[make.names(all_names) == all_names & all_names %in% ls(envir = .GlobalEnv)]
   if (length(valid_names) > 0) rm(list = valid_names, envir = .GlobalEnv)
 }
-
-
 
 
 #---------------------------------------------------------------------------------------------
@@ -672,25 +119,24 @@ get_disp_row <- function(mod, name, nsim = 500) {
 }
 
 
-
-
 #---------------------------------------------------------------------------------------------
 #setting a pretty names map
 pretty_map <- c(
-  "LogTR"         = "sc_sr",
+  "Tree_rich."   = "sc_logtr",
   "Stand_vol."  = "sc_sv",
   "Tree_FD"       = "sc_fd",
-  "Forest_age"    = "sc_fa",
+  "Stand_age"    = "sc_fa",
   "Host_abund."    = "sc_ha",
   "Host_rich."     = "sc_hr",
-  "Enemy_abund."   = "sc_pa",
-  "Enemy_rich."    = "sc_pr",
-  "Enemy_rich."    = "sc_pr10",
+  "Par_abund."   = "sc_pa",
+  "Par_rich."    = "sc_pr",
+  "Par_rich."    = "sc_pr10",
   "Slope"         = "sc_slope",
   "Elevation"     = "sc_elev",
   "Eastness"      = "sc_east",
   "Northness"     = "sc_north",
-  "Host_abund." = "sc_cells"
+  "Host_abund." = "sc_cells",
+  "Focal_rich"  = "sc_frich"
 )
 #printing an anova type I table
 make_type1_table <- function(mods, anova_obj, pretty_map,
@@ -812,4 +258,1048 @@ make_type1_table <- function(mods, anova_obj, pretty_map,
   }
   
   out
+}
+
+
+# ------------------------------------------------------------------------------
+# Clean model-summary exporter for glmmTMB models
+#
+# Usage:
+#   source("functions.R")
+#   model_summaries <- export_glmmTMB_markdown(
+#     models = models,
+#     file = "model_summaries.md",
+#     digits = 3
+#   )
+# ------------------------------------------------------------------------------
+
+sig_stars <- function(p) {
+  ifelse(is.na(p), "",
+         ifelse(p < 0.001, "***",
+                ifelse(p < 0.01, "**",
+                       ifelse(p < 0.05, "*",
+                              ifelse(p < 0.1, ".", "")))))
+}
+
+fmt_value <- function(x, digits = 3) {
+  if (length(x) == 0 || is.null(x)) return(NA_character_)
+  if (is.character(x)) return(x)
+  ifelse(is.na(x), "NA", formatC(as.numeric(x), format = "f", digits = digits))
+}
+
+fmt_p <- function(x, digits = 3) {
+  ifelse(is.na(x), "NA",
+         ifelse(x < 0.001, "<0.001", formatC(x, format = "f", digits = digits)))
+}
+
+fmt_sig <- function(x, digits = 3) {
+  ifelse(is.na(x), "NA", format(signif(as.numeric(x), digits), scientific = FALSE, trim = TRUE))
+}
+
+fmt_docx_numeric_cells <- function(x, digits = 3, p_value = FALSE) {
+  x_chr <- as.character(x)
+  x_num <- suppressWarnings(as.numeric(x_chr))
+  is_num <- !is.na(x_num) & nzchar(trimws(x_chr))
+
+  out <- x_chr
+  out[is.na(out)] <- ""
+  if (any(is_num)) {
+    out[is_num] <- if (p_value) fmt_p(x_num[is_num], digits) else fmt_sig(x_num[is_num], digits)
+  }
+  out
+}
+
+capture_warnings <- function(expr,
+                             object_name = "script_warnings",
+                             envir = .GlobalEnv,
+                             append = TRUE,
+                             quiet = TRUE) {
+  captured <- list()
+
+  value <- withCallingHandlers(
+    expr,
+    warning = function(w) {
+      captured[[length(captured) + 1L]] <<- list(
+        message = conditionMessage(w),
+        call = paste(deparse(conditionCall(w)), collapse = " ")
+      )
+
+      if (quiet) invokeRestart("muffleWarning")
+    }
+  )
+
+  warning_table <- data.frame(
+    Index = seq_along(captured),
+    Message = vapply(captured, `[[`, character(1), "message"),
+    Call = vapply(captured, `[[`, character(1), "call"),
+    stringsAsFactors = FALSE
+  )
+
+  if (append && exists(object_name, envir = envir, inherits = FALSE)) {
+    old <- get(object_name, envir = envir, inherits = FALSE)
+    if (is.data.frame(old) && nrow(old) > 0) {
+      warning_table <- rbind(old, warning_table)
+      warning_table$Index <- seq_len(nrow(warning_table))
+    }
+  }
+
+  assign(object_name, warning_table, envir = envir)
+  invisible(value)
+}
+
+pad_markdown_table <- function(df, digits = 3, p_cols = character(0)) {
+  if (is.null(df) || nrow(df) == 0) return(character(0))
+  df <- as.data.frame(df, stringsAsFactors = FALSE, check.names = FALSE)
+
+  for (nm in names(df)) {
+    if (is.numeric(df[[nm]])) {
+      df[[nm]] <- if (nm %in% p_cols) fmt_p(df[[nm]], digits) else fmt_value(df[[nm]], digits)
+    } else {
+      df[[nm]] <- ifelse(is.na(df[[nm]]), "NA", as.character(df[[nm]]))
+    }
+  }
+
+  widths <- vapply(names(df), function(nm) {
+    max(nchar(nm, type = "width"), nchar(df[[nm]], type = "width"), na.rm = TRUE)
+  }, numeric(1))
+
+  pad_row <- function(vals) {
+    vals <- as.character(vals)
+    paste(mapply(function(val, width) sprintf(paste0("%-", width, "s"), val),
+                 vals, widths),
+          collapse = " | ")
+  }
+
+  c(
+    "```",
+    pad_row(names(df)),
+    paste(mapply(function(width) paste(rep("-", width), collapse = ""),
+                 widths),
+          collapse = "-|-"),
+    apply(df, 1, pad_row),
+    "```"
+  )
+}
+
+default_pretty_names <- function() {
+  c(
+    sc_logtr = "Tree richness",
+    sc_sv = "Stand volume",
+    sc_fd = "Tree FD",
+    sc_fa = "Stand age",
+    sc_elev = "Elevation",
+    sc_east = "Eastness",
+    sc_north = "Northness",
+    sc_slope = "Slope",
+    sc_temp = "Annual temperature",
+    sc_humid = "Annual humidity",
+    sc_cells = "Host abundance",
+    sc_hr = "Host richness",
+    sc_pr = "Parasitoid richness",
+    sc_pr10 = "Parasitoid richness",
+    sc_netsize = "Network size",
+    sc_links = "Number of links",
+    sc_linkdense = "Linkage density",
+    sc_h2 = "H2",
+    sc_mdprime = "Mean d-prime",
+    sc_niche = "Niche overlap",
+    sc_intev = "Interaction evenness",
+    sc_robust = "Robustness",
+    sc_frich = "Focal parasitoid richness"
+  )
+}
+
+pretty_term <- function(term, pretty_names = default_pretty_names()) {
+  if (term %in% c("(Intercept)", "(Intercept).1")) return(term)
+
+  clean_piece <- function(x) {
+    if (x %in% names(pretty_names)) return(pretty_names[[x]])
+
+    y <- x
+    for (code in names(pretty_names)) {
+      y <- gsub(paste0("\\b", code, "\\b"), pretty_names[[code]], y)
+    }
+    y
+  }
+
+  pieces <- strsplit(term, ":", fixed = TRUE)[[1]]
+  pieces <- vapply(pieces, clean_piece, character(1))
+  paste(pieces, collapse = " x ")
+}
+
+safe_family <- function(model) {
+  fam <- try(stats::family(model), silent = TRUE)
+  if (inherits(fam, "try-error")) {
+    return(list(family = NA_character_, link = NA_character_))
+  }
+  list(
+    family = if (!is.null(fam$family)) fam$family else NA_character_,
+    link = if (!is.null(fam$link)) fam$link else NA_character_
+  )
+}
+
+extract_fixed_table <- function(model, component = c("cond", "zi", "disp"),
+                                pretty_names = default_pretty_names()) {
+  component <- match.arg(component)
+  coefs <- try(coef(summary(model)), silent = TRUE)
+  if (inherits(coefs, "try-error") || is.null(coefs[[component]]) || nrow(coefs[[component]]) == 0) {
+    return(NULL)
+  }
+
+  tab <- as.data.frame(coefs[[component]], check.names = FALSE)
+  stat_col <- intersect(c("z value", "t value"), names(tab))
+  p_col <- intersect(c("Pr(>|z|)", "Pr(>|t|)"), names(tab))
+
+  out <- data.frame(
+    Term = vapply(rownames(tab), pretty_term, character(1), pretty_names = pretty_names),
+    Estimate = tab[["Estimate"]],
+    `Std. Error` = tab[["Std. Error"]],
+    check.names = FALSE
+  )
+
+  if (length(stat_col) > 0) out[[stat_col[1]]] <- tab[[stat_col[1]]]
+  if (length(p_col) > 0) {
+    out[["P value"]] <- tab[[p_col[1]]]
+    out[["Sig."]] <- sig_stars(tab[[p_col[1]]])
+  }
+
+  out
+}
+
+extract_random_effects <- function(model) {
+  if (requireNamespace("broom.mixed", quietly = TRUE)) {
+    ran <- try(broom.mixed::tidy(model, effects = "ran_pars"), silent = TRUE)
+    if (!inherits(ran, "try-error") && !is.null(ran) && nrow(ran) > 0) {
+      ran <- subset(ran, component %in% c("cond", NA) & grepl("^sd__", term))
+      if (nrow(ran) > 0) {
+        return(data.frame(
+          Component = "conditional",
+          Group = ran$group,
+          Term = sub("^sd__", "", ran$term),
+          `Std. Dev.` = ran$estimate,
+          Variance = ran$estimate^2,
+          check.names = FALSE
+        ))
+      }
+    }
+  }
+
+  vc <- try(as.data.frame(VarCorr(model)), silent = TRUE)
+  if (!inherits(vc, "try-error") && !is.null(vc) && nrow(vc) > 0) {
+    if (all(c("component", "grp", "var1", "var2", "sdcor") %in% names(vc))) {
+      vc <- subset(vc, component == "cond" & is.na(var2))
+      if (nrow(vc) > 0) {
+        return(data.frame(
+          Component = "conditional",
+          Group = vc$grp,
+          Term = ifelse(is.na(vc$var1), "(Intercept)", vc$var1),
+          `Std. Dev.` = vc$sdcor,
+          Variance = vc$sdcor^2,
+          check.names = FALSE
+        ))
+      }
+    }
+  }
+
+  NULL
+}
+
+extract_dispersion_random_from_summary <- function(model) {
+  txt <- capture.output(suppressWarnings(summary(model)))
+  start <- grep("^Dispersion model:", txt)
+  if (length(start) == 0) return(NULL)
+
+  start <- start[1] + 1L
+  if (start > length(txt)) return(NULL)
+
+  stop_at <- length(txt)
+  for (i in seq(from = start, to = length(txt))) {
+    line <- trimws(txt[[i]])
+    if (i > start && (
+      line == "" ||
+      grepl("^Number of obs:", line) ||
+      grepl("^Conditional model:", line) ||
+      grepl("^Zero-inflation model:", line)
+    )) {
+      stop_at <- i - 1L
+      break
+    }
+  }
+
+  block <- txt[start:stop_at]
+  block <- block[nzchar(trimws(block))]
+  if (length(block) < 2) return(NULL)
+
+  header_idx <- grep("Groups\\s+Name\\s+Variance\\s+Std\\.Dev\\.", block)
+  if (length(header_idx) == 0) return(NULL)
+
+  rows <- block[(header_idx[1] + 1L):length(block)]
+  rows <- rows[nzchar(trimws(rows))]
+  if (length(rows) == 0) return(NULL)
+
+  parsed <- lapply(rows, function(line) {
+    fields <- strsplit(trimws(line), "\\s+")[[1]]
+    if (length(fields) < 4) return(NULL)
+
+    numeric_at <- which(!is.na(suppressWarnings(as.numeric(fields))))
+    if (length(numeric_at) < 2) return(NULL)
+
+    var_pos <- numeric_at[1]
+    sd_pos <- numeric_at[2]
+    if (var_pos < 3) return(NULL)
+
+    group <- fields[1]
+    term <- paste(fields[2:(var_pos - 1L)], collapse = " ")
+    variance <- suppressWarnings(as.numeric(fields[var_pos]))
+    std_dev <- suppressWarnings(as.numeric(fields[sd_pos]))
+    corr <- if (sd_pos < length(fields)) paste(fields[(sd_pos + 1L):length(fields)], collapse = " ") else NA_character_
+
+    data.frame(
+      Group = group,
+      Term = term,
+      Variance = variance,
+      `Std. Dev.` = std_dev,
+      Correlation = corr,
+      check.names = FALSE
+    )
+  })
+
+  parsed <- parsed[!vapply(parsed, is.null, logical(1))]
+  if (length(parsed) == 0) return(NULL)
+
+  out <- do.call(rbind, parsed)
+  rownames(out) <- NULL
+  out
+}
+
+extract_dispersion_parameters <- function(model, pretty_names = default_pretty_names()) {
+  out <- list()
+
+  disp_fixed <- extract_fixed_table(model, "disp", pretty_names)
+  if (!is.null(disp_fixed)) out$dispersion_fixed <- disp_fixed
+
+  vc <- try(as.data.frame(VarCorr(model)), silent = TRUE)
+  if (!inherits(vc, "try-error") && !is.null(vc) && nrow(vc) > 0 &&
+      "component" %in% names(vc)) {
+    disp_vc <- subset(vc, component == "disp")
+    if (nrow(disp_vc) > 0) {
+      keep <- intersect(c("grp", "var1", "var2", "vcov", "sdcor"), names(disp_vc))
+      disp_vc <- disp_vc[, keep, drop = FALSE]
+      names(disp_vc) <- c("Group", "Term 1", "Term 2", "Variance/Covariance", "Std.Dev./Corr")[seq_along(keep)]
+      out$dispersion_random <- disp_vc
+    }
+  }
+
+  if (is.null(out$dispersion_random)) {
+    disp_summary <- extract_dispersion_random_from_summary(model)
+    if (!is.null(disp_summary)) out$dispersion_random <- disp_summary
+  }
+
+  family_name <- safe_family(model)$family
+  if (!is.na(family_name) && grepl("^genpois", family_name, ignore.case = TRUE)) {
+    sigma_val <- try(sigma(model), silent = TRUE)
+    if (!inherits(sigma_val, "try-error") && is.finite(sigma_val)) {
+      out$family_dispersion <- data.frame(
+        Parameter = "Generalized Poisson dispersion",
+        Estimate = as.numeric(sigma_val),
+        check.names = FALSE
+      )
+    }
+  }
+
+  if (length(out) == 0) NULL else out
+}
+
+fit_null_model <- function(model) {
+  tryCatch(
+    suppressWarnings(update(model, . ~ 1)),
+    error = function(e) structure(list(error = conditionMessage(e)), class = "summary_export_error")
+  )
+}
+
+likelihood_r2 <- function(model, null_model = NULL) {
+  if (is.null(null_model)) null_model <- fit_null_model(model)
+  if (inherits(null_model, "summary_export_error")) {
+    return(list(
+      values = c(McFadden = NA_real_, CoxSnell = NA_real_, Nagelkerke = NA_real_),
+      note = paste("Likelihood R2 failed:", null_model$error)
+    ))
+  }
+
+  ll_full <- try(as.numeric(stats::logLik(model)), silent = TRUE)
+  ll_null <- try(as.numeric(stats::logLik(null_model)), silent = TRUE)
+  n <- try(stats::nobs(model), silent = TRUE)
+
+  if (inherits(ll_full, "try-error") || inherits(ll_null, "try-error") ||
+      inherits(n, "try-error") || !is.finite(ll_full) || !is.finite(ll_null) ||
+      !is.finite(n) || n <= 0) {
+    return(list(
+      values = c(McFadden = NA_real_, CoxSnell = NA_real_, Nagelkerke = NA_real_),
+      note = "Likelihood R2 failed because log-likelihood or n was not finite."
+    ))
+  }
+
+  cox_snell <- 1 - exp((2 / n) * (ll_null - ll_full))
+  max_cox_snell <- 1 - exp((2 / n) * ll_null)
+
+  list(
+    values = c(
+      McFadden = 1 - (ll_full / ll_null),
+      CoxSnell = cox_snell,
+      Nagelkerke = if (abs(max_cox_snell) < .Machine$double.eps) NA_real_ else cox_snell / max_cox_snell
+    ),
+    note = NA_character_
+  )
+}
+
+nakagawa_r2 <- function(model, tolerances = c(1e-08, 1e-10, 1e-12, 0)) {
+  if (!requireNamespace("performance", quietly = TRUE)) {
+    return(list(
+      values = c(Marginal = NA_real_, Conditional = NA_real_),
+      note = "Nakagawa R2 not calculated because package 'performance' is unavailable."
+    ))
+  }
+
+  messages <- character(0)
+  for (tol in tolerances) {
+    res <- tryCatch(
+      suppressWarnings(performance::r2_nakagawa(model, tolerance = tol)),
+      error = function(e) {
+        messages <<- c(messages, conditionMessage(e))
+        NULL
+      }
+    )
+
+    vals <- suppressWarnings(try(unlist(res), silent = TRUE))
+    if (!inherits(vals, "try-error") && length(vals) > 0) {
+      m_idx <- grep("marginal", names(vals), ignore.case = TRUE)[1]
+      c_idx <- grep("conditional", names(vals), ignore.case = TRUE)[1]
+      m <- suppressWarnings(as.numeric(vals[m_idx]))
+      c <- suppressWarnings(as.numeric(vals[c_idx]))
+      if (is.finite(m) || is.finite(c)) {
+        note <- if (identical(tol, tolerances[1])) {
+          NA_character_
+        } else {
+          paste0("Nakagawa R2 required a less sensitive singularity tolerance (",
+                 format(tol, scientific = TRUE), ").")
+        }
+        return(list(values = c(Marginal = m, Conditional = c), note = note))
+      }
+    }
+  }
+
+  if (requireNamespace("MuMIn", quietly = TRUE)) {
+    mm <- try(suppressWarnings(MuMIn::r.squaredGLMM(model)), silent = TRUE)
+    if (!inherits(mm, "try-error") && !is.null(mm) &&
+        all(c("R2m", "R2c") %in% colnames(mm))) {
+      return(list(
+        values = c(Marginal = as.numeric(mm[1, "R2m"]), Conditional = as.numeric(mm[1, "R2c"])),
+        note = "Nakagawa R2 was calculated with MuMIn::r.squaredGLMM() after performance::r2_nakagawa() failed."
+      ))
+    }
+  }
+
+  list(
+    values = c(Marginal = NA_real_, Conditional = NA_real_),
+    note = paste(c("Nakagawa R2 failed for this model.", unique(messages)), collapse = " ")
+  )
+}
+
+model_fit_table <- function(model, lr2, nr2) {
+  fam <- safe_family(model)
+
+  data.frame(
+    Family = fam$family,
+    Link = fam$link,
+    Observations = tryCatch(stats::nobs(model), error = function(e) NA_integer_),
+    logLik = tryCatch(as.numeric(stats::logLik(model)), error = function(e) NA_real_),
+    AIC = tryCatch(stats::AIC(model), error = function(e) NA_real_),
+    R2_Nakagawa_marginal = nr2$values[["Marginal"]],
+    R2_Nakagawa_conditional = nr2$values[["Conditional"]],
+    R2_McFadden = lr2$values[["McFadden"]],
+    R2_CoxSnell = lr2$values[["CoxSnell"]],
+    R2_Nagelkerke = lr2$values[["Nagelkerke"]],
+    check.names = FALSE
+  )
+}
+
+export_glmmTMB_markdown <- function(models,
+                                    file = "model_summaries.md",
+                                    digits = 3,
+                                    pretty_names = default_pretty_names(),
+                                    null_models = NULL,
+                                    title = "Model summaries") {
+  stopifnot(is.list(models))
+  if (length(models) == 0) stop("`models` is empty.")
+
+  model_names <- names(models)
+  if (is.null(model_names)) model_names <- paste0("Model_", seq_along(models))
+  model_names[!nzchar(model_names)] <- paste0("Model_", which(!nzchar(model_names)))
+
+  if (!is.null(null_models) && is.null(names(null_models))) {
+    stop("If `null_models` is supplied, it must be a named list.")
+  }
+
+  con <- file(file, open = "wt", encoding = "UTF-8")
+  on.exit(close(con), add = TRUE)
+
+  writeLines(c(
+    paste0("# ", title),
+    "",
+    paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    "",
+    "R2 reporting:",
+    "",
+    "- Nakagawa R2 is reported as marginal / conditional when available.",
+    "- Likelihood-based pseudo-R2 is reported as McFadden / Cox-Snell / Nagelkerke.",
+    "- If Nakagawa R2 required a less sensitive singularity tolerance, the model section reports that explicitly.",
+    "- R2 values from different families or dispersion structures should be compared cautiously.",
+    "",
+    "---",
+    ""
+  ), con)
+
+  results <- vector("list", length(models))
+  names(results) <- model_names
+
+  for (i in seq_along(models)) {
+    model <- models[[i]]
+    model_name <- model_names[[i]]
+    null_model <- if (!is.null(null_models) && model_name %in% names(null_models)) null_models[[model_name]] else NULL
+
+    lr2 <- likelihood_r2(model, null_model)
+    nr2 <- nakagawa_r2(model)
+    fit <- model_fit_table(model, lr2, nr2)
+
+    writeLines(c(paste0("## ", model_name), ""), con)
+    writeLines(pad_markdown_table(fit, digits), con)
+    writeLines("", con)
+
+    notes <- c(lr2$note, nr2$note)
+    notes <- notes[!is.na(notes) & nzchar(notes)]
+    if (length(notes) > 0) {
+      writeLines(c("**R2 notes**", "", paste0("- ", notes), ""), con)
+    }
+
+    cond <- extract_fixed_table(model, "cond", pretty_names)
+    if (!is.null(cond)) {
+      writeLines(c("### Fixed effects: conditional", ""), con)
+      writeLines(pad_markdown_table(cond, digits, p_cols = "P value"), con)
+      writeLines(c("", "Significance codes: *** < 0.001, ** < 0.01, * < 0.05, . < 0.1", ""), con)
+    }
+
+    zi <- extract_fixed_table(model, "zi", pretty_names)
+    if (!is.null(zi)) {
+      writeLines(c("### Fixed effects: zero-inflation", ""), con)
+      writeLines(pad_markdown_table(zi, digits, p_cols = "P value"), con)
+      writeLines(c("", "Significance codes: *** < 0.001, ** < 0.01, * < 0.05, . < 0.1", ""), con)
+    }
+
+    disp <- extract_dispersion_parameters(model, pretty_names)
+    if (!is.null(disp)) {
+      if (!is.null(disp$family_dispersion)) {
+        writeLines(c("### Family dispersion", ""), con)
+        writeLines(pad_markdown_table(disp$family_dispersion, digits), con)
+        writeLines("", con)
+      }
+      if (!is.null(disp$dispersion_fixed)) {
+        writeLines(c("### Fixed effects: dispersion model", ""), con)
+        writeLines(pad_markdown_table(disp$dispersion_fixed, digits, p_cols = "P value"), con)
+        writeLines("", con)
+      }
+      if (!is.null(disp$dispersion_random)) {
+        writeLines(c("### Random effects: dispersion/autocorrelation", ""), con)
+        writeLines(pad_markdown_table(disp$dispersion_random, digits), con)
+        writeLines("", con)
+      }
+    }
+
+    ran <- extract_random_effects(model)
+    if (!is.null(ran)) {
+      writeLines(c("### Random effects: conditional", ""), con)
+      writeLines(pad_markdown_table(ran, digits), con)
+      writeLines("", con)
+    }
+
+    writeLines(c("---", ""), con)
+
+    results[[i]] <- list(
+      fit = fit,
+      r2_notes = notes,
+      fixed_conditional = cond,
+      fixed_zero_inflation = zi,
+      dispersion = disp,
+      random_conditional = ran
+    )
+  }
+
+  message("Wrote model summaries to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+table_for_docx <- function(model, lr2, nr2, pretty_names = default_pretty_names(), digits = 3) {
+  fit <- model_fit_table(model, lr2, nr2)
+
+  fit_rows <- data.frame(
+    Section = "Model fit",
+    Term = names(fit),
+    Estimate = as.character(unlist(fit[1, ], use.names = FALSE)),
+    `Std. Error` = "",
+    Statistic = "",
+    `P value` = "",
+    Sig. = "",
+    check.names = FALSE
+  )
+
+  cond <- extract_fixed_table(model, "cond", pretty_names)
+  if (!is.null(cond)) {
+    names(cond)[names(cond) %in% c("z value", "t value")] <- "Statistic"
+    cond$Section <- "Fixed effects"
+  }
+
+  zi <- extract_fixed_table(model, "zi", pretty_names)
+  if (!is.null(zi)) {
+    names(zi)[names(zi) %in% c("z value", "t value")] <- "Statistic"
+    zi$Section <- "Zero-inflation"
+  }
+
+  disp <- extract_dispersion_parameters(model, pretty_names)
+  disp_rows <- NULL
+  if (!is.null(disp)) {
+    if (!is.null(disp$family_dispersion)) {
+      disp_rows <- rbind(
+        disp_rows,
+        data.frame(
+          Section = "Family dispersion",
+          Term = disp$family_dispersion$Parameter,
+          Estimate = disp$family_dispersion$Estimate,
+          `Std. Error` = "",
+          Statistic = "",
+          `P value` = "",
+          Sig. = "",
+          check.names = FALSE
+        )
+      )
+    }
+
+    if (!is.null(disp$dispersion_fixed)) {
+      tmp <- disp$dispersion_fixed
+      names(tmp)[names(tmp) %in% c("z value", "t value")] <- "Statistic"
+      disp_rows <- rbind(
+        disp_rows,
+        data.frame(
+          Section = "Dispersion fixed effects",
+          Term = tmp$Term,
+          Estimate = tmp$Estimate,
+          `Std. Error` = tmp$`Std. Error`,
+          Statistic = if ("Statistic" %in% names(tmp)) tmp$Statistic else "",
+          `P value` = if ("P value" %in% names(tmp)) tmp$`P value` else "",
+          Sig. = if ("Sig." %in% names(tmp)) tmp$Sig. else "",
+          check.names = FALSE
+        )
+      )
+    }
+
+    if (!is.null(disp$dispersion_random)) {
+      tmp <- disp$dispersion_random
+      term <- if ("Term" %in% names(tmp)) tmp$Term else if ("Term 1" %in% names(tmp)) tmp[["Term 1"]] else ""
+      estimate <- if ("Std. Dev." %in% names(tmp)) tmp[["Std. Dev."]] else if ("Std.Dev./Corr" %in% names(tmp)) tmp[["Std.Dev./Corr"]] else NA
+      extra <- if ("Correlation" %in% names(tmp)) tmp$Correlation else if ("Term 2" %in% names(tmp)) tmp[["Term 2"]] else ""
+      disp_rows <- rbind(
+        disp_rows,
+        data.frame(
+          Section = "Dispersion/autocorrelation",
+          Term = paste(tmp$Group, term, extra),
+          Estimate = estimate,
+          `Std. Error` = "",
+          Statistic = "",
+          `P value` = "",
+          Sig. = "",
+          check.names = FALSE
+        )
+      )
+    }
+  }
+
+  ran <- extract_random_effects(model)
+  ran_rows <- NULL
+  if (!is.null(ran)) {
+    ran_rows <- data.frame(
+      Section = "Random effects",
+      Term = paste(ran$Group, ran$Term),
+      Estimate = ran$`Std. Dev.`,
+      `Std. Error` = "",
+      Statistic = "",
+      `P value` = "",
+      Sig. = "",
+      check.names = FALSE
+    )
+  }
+
+  pieces <- list(fit_rows, cond, zi, disp_rows, ran_rows)
+  pieces <- pieces[!vapply(pieces, is.null, logical(1))]
+
+  all_names <- unique(unlist(lapply(pieces, names)))
+  pieces <- lapply(pieces, function(x) {
+    missing <- setdiff(all_names, names(x))
+    for (nm in missing) x[[nm]] <- ""
+    x[, all_names, drop = FALSE]
+  })
+
+  out <- do.call(rbind, pieces)
+  keep <- c("Section", "Term", "Estimate", "Std. Error", "Statistic", "P value", "Sig.")
+  out <- out[, intersect(keep, names(out)), drop = FALSE]
+
+  for (nm in names(out)) {
+    if (nm == "P value") {
+      out[[nm]] <- fmt_docx_numeric_cells(out[[nm]], digits, p_value = TRUE)
+    } else if (nm %in% c("Estimate", "Std. Error", "Statistic")) {
+      out[[nm]] <- fmt_docx_numeric_cells(out[[nm]], digits, p_value = FALSE)
+    } else {
+      out[[nm]] <- ifelse(is.na(out[[nm]]), "", as.character(out[[nm]]))
+    }
+  }
+
+  out
+}
+
+export_glmmTMB_docx <- function(models,
+                                file = "model_summaries.docx",
+                                digits = 3,
+                                pretty_names = default_pretty_names(),
+                                null_models = NULL,
+                                title = "Model summaries") {
+  stopifnot(is.list(models))
+  if (length(models) == 0) stop("`models` is empty.")
+  if (!requireNamespace("officer", quietly = TRUE)) {
+    stop("Package 'officer' is required to write .docx files. Install it with install.packages('officer').")
+  }
+  if (!requireNamespace("flextable", quietly = TRUE)) {
+    stop("Package 'flextable' is required to write formatted Word tables. Install it with install.packages('flextable').")
+  }
+  if (!is.null(null_models) && is.null(names(null_models))) {
+    stop("If `null_models` is supplied, it must be a named list.")
+  }
+
+  model_names <- names(models)
+  if (is.null(model_names)) model_names <- paste0("Model_", seq_along(models))
+  model_names[!nzchar(model_names)] <- paste0("Model_", which(!nzchar(model_names)))
+
+  doc <- officer::read_docx()
+  doc <- officer::body_add_par(doc, title, style = "heading 1")
+  doc <- officer::body_add_par(doc, paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), style = "Normal")
+  doc <- officer::body_add_par(doc, "R2 values are reported for transparency and should be compared cautiously across different families or dispersion structures.", style = "Normal")
+
+  results <- vector("list", length(models))
+  names(results) <- model_names
+
+  for (i in seq_along(models)) {
+    model <- models[[i]]
+    model_name <- model_names[[i]]
+    null_model <- if (!is.null(null_models) && model_name %in% names(null_models)) null_models[[model_name]] else NULL
+
+    lr2 <- likelihood_r2(model, null_model)
+    nr2 <- nakagawa_r2(model)
+    tab <- table_for_docx(model, lr2, nr2, pretty_names, digits)
+
+    doc <- officer::body_add_par(doc, model_name, style = "heading 2")
+
+    notes <- c(lr2$note, nr2$note)
+    notes <- notes[!is.na(notes) & nzchar(notes)]
+    if (length(notes) > 0) {
+      doc <- officer::body_add_par(doc, paste("R2 notes:", paste(notes, collapse = " ")), style = "Normal")
+    }
+
+    ft <- flextable::flextable(tab)
+    ft <- flextable::theme_booktabs(ft)
+    ft <- flextable::fontsize(ft, size = 9, part = "all")
+    ft <- flextable::bold(ft, part = "header")
+    ft <- flextable::align(ft, align = "left", part = "all")
+    ft <- flextable::autofit(ft)
+
+    doc <- flextable::body_add_flextable(doc, ft)
+    doc <- officer::body_add_par(doc, "", style = "Normal")
+
+    results[[i]] <- tab
+  }
+
+  print(doc, target = file)
+  message("Wrote Word model summaries to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+format_sem_coef_table <- function(sem_obj, digits = 3, standardize = "scale") {
+  if (!requireNamespace("piecewiseSEM", quietly = TRUE)) {
+    stop("Package 'piecewiseSEM' is required to extract path-analysis coefficients.")
+  }
+
+  tab <- piecewiseSEM::coefs(sem_obj, standardize = standardize)
+  tab <- as.data.frame(tab, stringsAsFactors = FALSE, check.names = FALSE)
+  names(tab)[names(tab) == "" | is.na(names(tab))] <- "Sig."
+
+  p_cols <- grepl("^P$|^P[._ ]?Value$|^p[._ ]?value$|Pr\\(", names(tab), ignore.case = TRUE)
+  text_cols <- grepl("response|predictor|path|direction|sig|signif", names(tab), ignore.case = TRUE)
+
+  for (j in seq_along(tab)) {
+    nm <- names(tab)[[j]]
+    if (p_cols[[j]]) {
+      tab[[nm]] <- fmt_docx_numeric_cells(tab[[nm]], digits, p_value = TRUE)
+    } else if (!text_cols[[j]]) {
+      tab[[nm]] <- fmt_docx_numeric_cells(tab[[nm]], digits, p_value = FALSE)
+    } else {
+      tab[[nm]] <- ifelse(is.na(tab[[nm]]), "", as.character(tab[[nm]]))
+    }
+  }
+
+  tab
+}
+
+export_piecewiseSEM_markdown <- function(sems,
+                                         file = "sem_path_results.md",
+                                         digits = 3,
+                                         standardize = "scale",
+                                         title = "Path analysis results") {
+  stopifnot(is.list(sems))
+  if (length(sems) == 0) stop("`sems` is empty.")
+
+  sem_names <- names(sems)
+  if (is.null(sem_names)) sem_names <- paste0("SEM_", seq_along(sems))
+  sem_names[!nzchar(sem_names)] <- paste0("SEM_", which(!nzchar(sem_names)))
+
+  con <- file(file, open = "wt", encoding = "UTF-8")
+  on.exit(close(con), add = TRUE)
+
+  writeLines(c(
+    paste0("# ", title),
+    "",
+    paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    "",
+    paste0("Standardization: ", standardize),
+    "",
+    "Numeric values are shown to three significant figures by default; p-values below 0.001 are shown as <0.001.",
+    "",
+    "---",
+    ""
+  ), con)
+
+  results <- vector("list", length(sems))
+  names(results) <- sem_names
+
+  for (i in seq_along(sems)) {
+    sem_name <- sem_names[[i]]
+    tab <- format_sem_coef_table(sems[[i]], digits = digits, standardize = standardize)
+
+    writeLines(c(paste0("## ", sem_name), ""), con)
+    writeLines(pad_markdown_table(tab, digits = digits), con)
+    writeLines(c("", "---", ""), con)
+
+    results[[i]] <- tab
+  }
+
+  message("Wrote SEM path results to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+export_piecewiseSEM_docx <- function(sems,
+                                     file = "sem_path_results.docx",
+                                     digits = 3,
+                                     standardize = "scale",
+                                     title = "Path analysis results") {
+  stopifnot(is.list(sems))
+  if (length(sems) == 0) stop("`sems` is empty.")
+  if (!requireNamespace("officer", quietly = TRUE)) {
+    stop("Package 'officer' is required to write .docx files. Install it with install.packages('officer').")
+  }
+  if (!requireNamespace("flextable", quietly = TRUE)) {
+    stop("Package 'flextable' is required to write formatted Word tables. Install it with install.packages('flextable').")
+  }
+
+  sem_names <- names(sems)
+  if (is.null(sem_names)) sem_names <- paste0("SEM_", seq_along(sems))
+  sem_names[!nzchar(sem_names)] <- paste0("SEM_", which(!nzchar(sem_names)))
+
+  doc <- officer::read_docx()
+  doc <- officer::body_add_par(doc, title, style = "heading 1")
+  doc <- officer::body_add_par(doc, paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), style = "Normal")
+  doc <- officer::body_add_par(doc, paste0("Standardization: ", standardize), style = "Normal")
+  doc <- officer::body_add_par(doc, "Numeric values are shown to three significant figures by default; p-values below 0.001 are shown as <0.001.", style = "Normal")
+
+  results <- vector("list", length(sems))
+  names(results) <- sem_names
+
+  for (i in seq_along(sems)) {
+    sem_name <- sem_names[[i]]
+    tab <- format_sem_coef_table(sems[[i]], digits = digits, standardize = standardize)
+
+    doc <- officer::body_add_par(doc, sem_name, style = "heading 2")
+
+    ft <- flextable::flextable(tab)
+    ft <- flextable::theme_booktabs(ft)
+    ft <- flextable::fontsize(ft, size = 9, part = "all")
+    ft <- flextable::bold(ft, part = "header")
+    ft <- flextable::align(ft, align = "left", part = "all")
+    ft <- flextable::autofit(ft)
+
+    doc <- flextable::body_add_flextable(doc, ft)
+    doc <- officer::body_add_par(doc, "", style = "Normal")
+
+    results[[i]] <- tab
+  }
+
+  print(doc, target = file)
+  message("Wrote Word SEM path results to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+format_export_table <- function(tab, digits = 3) {
+  tab <- as.data.frame(tab, stringsAsFactors = FALSE, check.names = FALSE)
+  p_cols <- grepl("^P$|^P[._ ]?Value$|^p[._ ]?value$|Pr\\(", names(tab), ignore.case = TRUE)
+
+  for (j in seq_along(tab)) {
+    nm <- names(tab)[[j]]
+    if (p_cols[[j]]) {
+      tab[[nm]] <- fmt_docx_numeric_cells(tab[[nm]], digits, p_value = TRUE)
+    } else if (is.numeric(tab[[nm]])) {
+      tab[[nm]] <- fmt_sig(tab[[nm]], digits)
+    } else {
+      tab[[nm]] <- ifelse(is.na(tab[[nm]]), "", as.character(tab[[nm]]))
+    }
+  }
+
+  tab
+}
+
+get_export_table_n <- function(tab, table_name, table_index, n = NULL) {
+  if (!is.null(n)) {
+    if (!is.null(names(n)) && table_name %in% names(n)) return(n[[table_name]])
+    if (length(n) >= table_index) return(n[[table_index]])
+  }
+
+  attr_n <- attr(tab, "n", exact = TRUE)
+  if (!is.null(attr_n)) return(attr_n)
+
+  n_cols <- intersect(c("n", "N", "nobs", "Nobs", "Observations"), names(tab))
+  if (length(n_cols) > 0) {
+    vals <- unique(tab[[n_cols[[1]]]])
+    vals <- vals[!is.na(vals)]
+    if (length(vals) == 1) return(vals[[1]])
+  }
+
+  NULL
+}
+
+export_table_list_markdown <- function(tables,
+                                       file = "tables.md",
+                                       digits = 3,
+                                       title = "Model comparison tables",
+                                       n = NULL) {
+  stopifnot(is.list(tables))
+  if (length(tables) == 0) stop("`tables` is empty.")
+
+  table_names <- names(tables)
+  if (is.null(table_names)) table_names <- paste0("Table_", seq_along(tables))
+  table_names[!nzchar(table_names)] <- paste0("Table_", which(!nzchar(table_names)))
+
+  con <- file(file, open = "wt", encoding = "UTF-8")
+  on.exit(close(con), add = TRUE)
+
+  writeLines(c(
+    paste0("# ", title),
+    "",
+    paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    "",
+    "Numeric values are shown to three significant figures by default; p-values below 0.001 are shown as <0.001.",
+    "",
+    "---",
+    ""
+  ), con)
+
+  results <- vector("list", length(tables))
+  names(results) <- table_names
+
+  for (i in seq_along(tables)) {
+    tab <- format_export_table(tables[[i]], digits = digits)
+    table_n <- get_export_table_n(tables[[i]], table_names[[i]], i, n = n)
+    writeLines(c(paste0("## ", table_names[[i]]), ""), con)
+    if (!is.null(table_n)) writeLines(c(paste0("n = ", table_n), ""), con)
+    writeLines(pad_markdown_table(tab, digits = digits), con)
+    writeLines(c("", "---", ""), con)
+    results[[i]] <- tab
+  }
+
+  message("Wrote tables to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+export_table_list_docx <- function(tables,
+                                   file = "tables.docx",
+                                   digits = 3,
+                                   title = "Model comparison tables",
+                                   n = NULL) {
+  stopifnot(is.list(tables))
+  if (length(tables) == 0) stop("`tables` is empty.")
+  if (!requireNamespace("officer", quietly = TRUE)) {
+    stop("Package 'officer' is required to write .docx files. Install it with install.packages('officer').")
+  }
+  if (!requireNamespace("flextable", quietly = TRUE)) {
+    stop("Package 'flextable' is required to write formatted Word tables. Install it with install.packages('flextable').")
+  }
+
+  table_names <- names(tables)
+  if (is.null(table_names)) table_names <- paste0("Table_", seq_along(tables))
+  table_names[!nzchar(table_names)] <- paste0("Table_", which(!nzchar(table_names)))
+
+  doc <- officer::read_docx()
+  doc <- officer::body_add_par(doc, title, style = "heading 1")
+  doc <- officer::body_add_par(doc, paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), style = "Normal")
+  doc <- officer::body_add_par(doc, "Numeric values are shown to three significant figures by default; p-values below 0.001 are shown as <0.001.", style = "Normal")
+
+  results <- vector("list", length(tables))
+  names(results) <- table_names
+
+  for (i in seq_along(tables)) {
+    tab <- format_export_table(tables[[i]], digits = digits)
+    table_n <- get_export_table_n(tables[[i]], table_names[[i]], i, n = n)
+    doc <- officer::body_add_par(doc, table_names[[i]], style = "heading 2")
+    if (!is.null(table_n)) {
+      doc <- officer::body_add_par(doc, paste0("n = ", table_n), style = "Normal")
+    }
+
+    ft <- flextable::flextable(tab)
+    ft <- flextable::theme_booktabs(ft)
+    ft <- flextable::fontsize(ft, size = 9, part = "all")
+    ft <- flextable::bold(ft, part = "header")
+    ft <- flextable::align(ft, align = "left", part = "all")
+    ft <- flextable::autofit(ft)
+
+    doc <- flextable::body_add_flextable(doc, ft)
+    doc <- officer::body_add_par(doc, "", style = "Normal")
+    results[[i]] <- tab
+  }
+
+  print(doc, target = file)
+  message("Wrote Word tables to: ", normalizePath(file, winslash = "/", mustWork = FALSE))
+  invisible(results)
+}
+
+get_glmmTMB_predictors <- function(model, component = "cond") {
+  f <- try(stats::formula(model, component = component), silent = TRUE)
+  if (inherits(f, "try-error")) f <- stats::formula(model)
+
+  fixed_formula <- if (requireNamespace("lme4", quietly = TRUE)) {
+    lme4::nobars(f)
+  } else {
+    f
+  }
+
+  term_labels <- attr(stats::terms(fixed_formula), "term.labels")
+  term_labels <- term_labels[!grepl("\\|", term_labels)]
+  if (length(term_labels) == 0) return(character(0))
+
+  vars <- unique(unlist(lapply(term_labels, function(term) {
+    all.vars(stats::as.formula(paste("~", term)))
+  })))
+
+  response_vars <- all.vars(fixed_formula[[2]])
+  setdiff(vars, response_vars)
 }
