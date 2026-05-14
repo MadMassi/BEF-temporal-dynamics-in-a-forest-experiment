@@ -17,8 +17,8 @@ Included with the dataset release, `plot_data_metadata.csv` describes the variab
 
 ## Files
 
-- `R_script.R`: main analysis script
-- `final_functions.R`: helper functions sourced by `R_script.R`
+- `Clean_R_script.R`: main analysis script
+- `final_functions.R`: helper functions sourced by `Clean_R_script.R`
 - `renv.lock`: package-version lockfile for reproducibility
 - `.Rprofile` and `renv/activate.R`: files used by `renv` to activate the project environment
 
@@ -40,7 +40,7 @@ use R 4.5.1 before running `renv::restore()`.
 Then run the analysis with:
 
 ```r
-source("R_script.R", echo = TRUE)
+source("Clean_R_script.R", echo = TRUE)
 ```
 
 ## Code Archive
