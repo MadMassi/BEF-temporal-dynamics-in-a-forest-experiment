@@ -1,30 +1,58 @@
-# BEF-temporal-dynamics-in-a-forest-experiment
-clean R script for data analysis of the manuscript: Time amplifies multitrophic diversity-functioning relationships in forests. Files include the main R script, and a secondary script with helper functions sourced into the main analysis
-
 # README for data "plot_data.csv" and associated R scripts
 
-[Access this dataset on Dryad](Dataset DOI)
+This repository contains the R analysis code for plot-year-level data on host-parasitoid diversity from the BEF-China platform. The data were collected from 2014 to 2023 using trap nests for cavity-nesting Hymenoptera and their parasitoids.
 
-Data and analysis of host-natural enemy diversity from the 'BEF-China' platform. Collected from 2014-2023 using trapnests for cavity-nesting Hymenoptera and their parasitoids.
+This is version 2 of the analysis code.
 
+## Data
 
-## Description of the data and file structure
+The main analysis uses `plot_data.csv`, a plot-year-level dataset containing host and parasitoid abundance and richness, parasitism-rate variables, and plot-level environmental predictors such as tree richness, stand volume, tree functional diversity, stand age, and climate variables.
 
-Plot-year-level data on the abundance and species richness of cavity-nesting Hymenoptera and their natural enemies (parasites, parasitoids, kleptoparasites).
-Includes plot-level environmental variables such as tree richness (the only manipulated variable in this large-scale forest experiment), stand volume, tree functional diversity, mean annual temperature, etc. As well as response variables of host (solitary bee and wasp) abundance and richness, and natural enemy abundance and richness. The ecosystem function of parasitism rate can be calculated and analysed as a response variable as well.
+The data are stored separately on Figshare:
 
-Main data file is "plot_data.csv"
-Metadata file is "plot_data_metadata.csv"
-Main data analysis R script is "Clean_R_script.R"
-Secondary R script with helper functions is "final_functions.R". This secondary script is sourced into the main script for data analysis.
+DOI:
+URL:
 
-Data is stored in Dryad, scripts are stored on Github + Zenodo
+Included with the dataset release, `plot_data_metadata.csv` describes the variables in `plot_data.csv`.
 
-For questions please contact:
-Massimo Martini - massimo.martini@nature.uni-freiburg.de
+## Files
 
+- `R_script.R`: main analysis script
+- `final_functions.R`: helper functions sourced by `R_script.R`
+- `renv.lock`: package-version lockfile for reproducibility
+- `.Rprofile` and `renv/activate.R`: files used by `renv` to activate the project environment
 
-## Code/Software
+Data are stored on Figshare, while the analysis scripts are stored on GitHub and archived on Zenodo.
 
-All code was written and runs in R. 
-R version 4.5.1 was used for the data analysis.
+## Software
+
+The analysis was run in R version 4.5.1.
+
+Package versions are recorded in `renv.lock`. 
+After downloading or cloning the repository, restore the package environment with:
+
+```r
+renv::restore()
+```
+Note: This project was tested with R 4.5.1. For the most reliable restore, 
+use R 4.5.1 before running `renv::restore()`.
+
+Then run the analysis with:
+
+```r
+source("R_script.R", echo = TRUE)
+```
+
+## Code Archive
+
+The analysis code is archived on Zenodo:
+
+DOI:
+URL: 
+
+## Contact
+
+For questions, please contact:
+
+Massimo Martini  
+massimo.martini@nature.uni-freiburg.de
