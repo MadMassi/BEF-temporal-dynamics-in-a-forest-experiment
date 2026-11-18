@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: >-
+  If you use this code, please cite this software release and the associated
+  article listed in README.md.
+type: software
+title: "Forest growth strengthens diversity effects on host-parasitoid interactions: analysis code"
+authors:
+  - family-names: "Martini"
+    given-names: "Massimo"
+    orcid: "https://orcid.org/0000-0002-1855-9334"
+version: "3.0.0"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/MadMassi/BEF-temporal-dynamics-in-a-forest-experiment"
+date-released: "2026-11-18"
